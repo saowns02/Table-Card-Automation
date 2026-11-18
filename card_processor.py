@@ -31,6 +31,26 @@ def get_timing_tag(text):
     if "int" in t or "interval" in t: return "(Int)"
     return ""
 
+# --- CATEGORY DEFINITIONS ---
+# Each course is its own independent category: (list key, timing tag key, keywords).
+# ORDER MATTERS: 'sides' is checked BEFORE 'mains' so that a type such as
+# "Main Sides" or "Sides (with mains)" is never filed under mains.
+# Sides and mains share no list and no timing tag.
+CATEGORIES = [
+    ('starters', 'starter_tag', ('starter',)),
+    ('sides',    'side_tag',    ('side',)),
+    ('mains',    'main_tag',    ('main',)),
+    ('desserts', 'dessert_tag', ('dessert',)),
+    ('drinks',   None,          ('drink', 'wine')),
+]
+
+def get_category(type_text):
+    """Return (list_key, tag_key) for a CSV 'Type' value, or (None, None)."""
+    for list_key, tag_key, keywords in CATEGORIES:
+        if any(k in type_text for k in keywords):
+            return list_key, tag_key
+    return None, None
+
 # --- MAIN PROCESSING FUNCTION ---
 def process_and_generate(csv_path, template_path, output_path):
     print(f"Processing CSV: {csv_path}")
@@ -87,8 +107,8 @@ def process_and_generate(csv_path, template_path, output_path):
             continue
 
         # --- Extract Food and Notes ---
-        food_items = {'starters': [], 'mains': [], 'sides': [], 'desserts': [], 'drinks': []}
-        timing_tags = {'starter_tag': '', 'main_tag': '', 'dessert_tag': ''}
+        food_items = {list_key: [] for list_key, _, _ in CATEGORIES}
+        timing_tags = {tag_key: '' for _, tag_key, _ in CATEGORIES if tag_key}
         collected_notes = []
 
         # Iterate through the item lines (starting from line 3)
@@ -131,23 +151,14 @@ def process_and_generate(csv_path, template_path, output_path):
             # Create the dish object
             dish_obj = {'qty': row[2], 'dish': item_name, 'dietary': ""}
 
-            # Categorize the item and apply header tags if found
-            if 'starter' in first_col: 
-                food_items['starters'].append(dish_obj)
-                if current_timing_tag and not timing_tags['starter_tag']:
-                    timing_tags['starter_tag'] = current_timing_tag
-            elif 'main' in first_col: 
-                food_items['mains'].append(dish_obj)
-                if current_timing_tag and not timing_tags['main_tag']:
-                    timing_tags['main_tag'] = current_timing_tag
-            elif 'side' in first_col: 
-                food_items['sides'].append(dish_obj)
-            elif 'dessert' in first_col: 
-                food_items['desserts'].append(dish_obj)
-                if current_timing_tag and not timing_tags['dessert_tag']:
-                    timing_tags['dessert_tag'] = current_timing_tag
-            elif 'drink' in first_col or 'wine' in first_col:
-                food_items['drinks'].append(dish_obj)
+            # Categorize the item into its own independent course.
+            # Each course (incl. sides vs mains) keeps its own list and timing tag.
+            list_key, tag_key = get_category(first_col)
+            if list_key is None:
+                continue
+            food_items[list_key].append(dish_obj)
+            if tag_key and current_timing_tag and not timing_tags[tag_key]:
+                timing_tags[tag_key] = current_timing_tag
 
         # NOTE: The "Phantom Main" fix has been REMOVED here.
         # This relies on the Word Template using {% if mains %} to hide the header.
